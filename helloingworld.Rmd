@@ -1,0 +1,16 @@
+---
+output: 
+  html_document: 
+    fig_caption: yes
+---
+
+# Fake Data
+```{r, eval=TRUE}
+df <- data.frame(
+  nums=c(1, 2, 3),
+  lets=c("a", "b", "c")
+                 )
+
+df
+```
+

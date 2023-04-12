@@ -352,8 +352,8 @@ display: none;
 </div>
 
 
-<div id="title" class="section level1">
-<h1>Title!</h1>
+<div id="fake-data" class="section level1">
+<h1>Fake Data</h1>
 <pre class="r"><code>df &lt;- data.frame(
   nums=c(1, 2, 3),
   lets=c(&quot;a&quot;, &quot;b&quot;, &quot;c&quot;)
@@ -364,6 +364,22 @@ df</code></pre>
 ## 1    1    a
 ## 2    2    b
 ## 3    3    c</code></pre>
+</div>
+<div id="mock-class" class="section level1">
+<h1>Mock Class</h1>
+<pre class="r"><code>class1 &lt;- data.frame(
+  id=c(sample(100:110, 5, replace=FALSE)),
+  student=c(&quot;Matthew&quot;, &quot;Karianne&quot;, &quot;Khalil&quot;, &quot;Lauren&quot;, &quot;Bill&quot;),
+  grade=c(&quot;A&quot;, &quot;A+&quot;, &quot;A-&quot;, &quot;B&quot;, &quot;C-&quot;),
+  teacher=c(&quot;Ned&quot;, &quot;Ned&quot;, &quot;Reed&quot;, &quot;Milly&quot;, &quot;Reed&quot;))
+
+class1</code></pre>
+<pre><code>##    id  student grade teacher
+## 1 106  Matthew     A     Ned
+## 2 110 Karianne    A+     Ned
+## 3 102   Khalil    A-    Reed
+## 4 101   Lauren     B   Milly
+## 5 109     Bill    C-    Reed</code></pre>
 </div>
 
 

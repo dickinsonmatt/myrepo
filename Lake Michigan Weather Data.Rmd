@@ -1,0 +1,391 @@
+---
+title: "Lake Michigan Weather Data"
+author: "Matthew Dickinson"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library setup}
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(plotly)
+library(lubridate)
+library(ggthemes)
+library(extrafont)
+library(knitr)
+library(kableExtra)
+library(patchwork)
+library(glue)
+library(RColorBrewer)
+```
+Predicting a good day at the beach
+```{r import data}
+weather <- read_csv("C:\\Users\\goldp\\Documents\\MyR\\Rdata\\beach-weather-stations-automated-sensors-1.csv")
+
+# spec(weather)
+
+col2names <- c("StationName" = "Station Name",
+               "MeasurementTimestamp"="Measurement Timestamp",
+               "AirTemperature" = "Air Temperature",
+               "WetBulbTemperature"="Wet Bulb Temperature",
+               "RainIntensity" = "Rain Intensity",
+               "IntervalRain" = "Interval Rain",
+               "TotalRain"="Total Rain",
+               "PrecipitationType"="Precipitation Type",
+               "WindDirection"="Wind Direction",
+               "WindSpeed"="Wind Speed",
+               "MaxWindSpeed"="Maximum Wind Speed",
+               "BarometricPressure" = "Barometric Pressure",
+               "SolarRadiation"="Solar Radiation",
+               "BatteryLife"="Battery Life",
+               "MeasurementTimeStampLabel"="Measurement Timestamp Label",
+               "MeasurementID" = "Measurement ID")
+
+weather <- rename(weather, any_of(col2names))
+weather$MeasurementTimestamp <- mdy_hms(weather$MeasurementTimestamp)
+spec(weather)
+```
+
+```{r table of data}
+head(weather)
+```
+```{r understanding num of obs}
+missing_obs <- function(data, groupingvar, var){
+   object <- data |>
+     group_by({{groupingvar}})|>
+     summarize("Total Obs" = n(),
+             # "{var} Obs missing" := sum(is.na({{var}})),
+             across({{var}}, ~ sum(is.na(.)), .names = "Missing {var}"))
+   return(object)
+}
+
+columns <- colnames(weather[,sapply(weather,is.numeric)])
+
+missing_obs(weather, StationName, columns) |>
+  select(-`Missing index`)
+
+```
+```{r getting dates for summer}
+get_summer_dates <- function() {
+  # Create a vector of years to include
+  years <- c(2015, 2016, 2017)
+  
+  # Create a data frame to store the results
+  summer_dates <- data.frame()
+  
+  # Loop through each year and add the summer dates to the data frame
+  for (year in years) {
+    # Find Memorial Day and Labor Day for the current year
+    memorial_day <- as.Date(paste(year, "-05-31", sep = ""))
+    while (format(memorial_day, "%A") != "Monday") {
+      memorial_day <- memorial_day - 1
+    }
+    labor_day <- as.Date(paste(year, "-09-01", sep = ""))
+    while (format(labor_day, "%A") != "Monday") {
+      labor_day <- labor_day + 1
+    }
+    labor_day <- labor_day + 6
+    
+    # Add the dates to the data frame
+    summer_dates <- rbind(summer_dates, 
+                          data.frame(year = year, 
+                                     start_date = memorial_day, 
+                                     end_date = labor_day))
+  }
+  
+  return(summer_dates)
+}
+
+
+# using most inclusive definition of summer
+summer_days <- c(get_summer_dates()[1,2], get_summer_dates()[1,3])
+
+# weather |>
+#   filter(between(MeasurementTimestamp,
+#                  get_summer_dates()[1,2], get_summer_dates()[1,3])==TRUE |
+#            between(MeasurementTimestamp,
+#                    get_summer_dates()[2,2], get_summer_dates()[2,3])==TRUE |
+#            between(MeasurementTimestamp,
+#                    get_summer_dates()[3,2], get_summer_dates()[3,3])==TRUE)
+# weather |>
+#   filter(StationName == "Oak Street Weather Station" & 
+#            between(MeasurementTimestamp, 
+#                  get_summer_dates()[1,2], get_summer_dates()[1,3])==TRUE) |>
+#   summarize("Summer Obs" = n())
+# 
+# weather |>
+#   filter(StationName == "Oak Street Weather Station" &
+#            between(MeasurementTimestamp,
+#                    get_summer_dates()[2,2], get_summer_dates()[2,3])==TRUE)|>
+#   summarize("Summer Obs" = n())
+# 
+# weather |>
+#   filter(StationName == "Foster Weather Station" &
+#            between(MeasurementTimestamp,
+#                    get_summer_dates()[3,2], get_summer_dates()[3,3])==TRUE)|>
+#   summarize("Summer Obs" = n())
+
+
+```
+
+```{r adding wet bulb globe temperature}
+# weather |>
+#   arrange(desc(SolarRadiation))
+
+weather <- weather |>
+  mutate("ea" = (Humidity/100)*(0.6107*(
+            exp((17.27*AirTemperature)/(AirTemperature+237.3)))),
+         
+         "Tpwb" = 0.376 + 5.79*ea + (0.388-0.0465*ea)*AirTemperature,
+         
+         "Tg" =.009624*(SolarRadiation)+
+                1.102*(AirTemperature)-
+                .00404*(Humidity)-2.2776,
+         
+         "Indicator"=Tg-AirTemperature,
+         
+         "e" = ifelse(between(WindSpeed, 0.1, 1), 0.10/WindSpeed^(1.1)-0.2, 
+                      ifelse(WindSpeed < 0.1, 1.1, -0.1)),
+         
+         "C" = ifelse(between(WindSpeed, 0.03, 3), 0.96 + 0.069*log10(WindSpeed),
+                      ifelse(WindSpeed > 3, 1, .85)),
+         
+         "Tnwb" = ifelse(Indicator < 4, 
+                              AirTemperature - C*(AirTemperature-Tpwb), 
+                              Tpwb + 0.25*(Indicator)+e),
+         
+         "WBGTc" = ifelse(!is.na(WetBulbTemperature),
+                          .7*WetBulbTemperature + .2*(Tg) + .1*AirTemperature,
+                          .7*Tnwb + .2*Tg + .1*AirTemperature),
+         
+         "WBGTf"= (WBGTc*(9/5)+32),
+         
+         "Threat" = case_when(WBGTf<75.9 ~ 1,
+                              between(`WBGTf`, 75.9, 78.7)~2,
+                              between(`WBGTf`, 78.8, 83.7)~3,
+                              between(`WBGTf`, 83.8, 87.6)~4,
+                              `WBGTf`>87.6 ~ 5))
+
+
+weather2 <- weather |>
+  filter(between(MeasurementTimestamp, summer_days[1], summer_days[2]))
+
+weather |>
+  filter(!is.na(WBGTf)) |>
+  summarize(n=n(),
+            percent_missing = round(1-(n/59144), 3))
+
+weather2 |>
+  filter(!is.na(WBGTf)) |>
+  summarize(n=n(),
+            percent_missing = round(1-(n/6620),3))
+```
+Calculating WGBT as per https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7240860/#:~:text=Standard%20meteorological%20data%20collected%20from,T%20g%20%2B%200.1%20T%20a%20.
+estimations for WBGT
+
+https://www.weather.gov/tsa/wbgt
+threat levels from https://www.weather.gov/ict/WBGT Chicago is category 2
+
+```{r distribution of WBGTf over year (line)}
+weather |>
+  group_by(month(MeasurementTimestamp)) |>
+  summarize(n = n(),
+    mean_WBGTf = mean(WBGTf, na.rm=TRUE)) |>
+  filter(mean_WBGTf != "NaN") |>
+  ggplot(aes(x=`month(MeasurementTimestamp)`, y=mean_WBGTf)) +
+  geom_line() +
+  theme_bw() +
+  scale_x_continuous(breaks=seq(1,12, by=1), limits=c(1, 12))
+
+
+weather3 <- weather |>
+  mutate(MonthDay = format(MeasurementTimestamp, "%m-%d")) |>
+  group_by(MonthDay) |>
+  summarize(n = n(),
+    mean_WBGTf = mean(WBGTf, na.rm=TRUE))
+
+weather3$MonthDay <- as.numeric(as.factor(weather3$MonthDay))
+
+
+wbgtf <- weather3 |>
+  ggplot(aes(x=MonthDay, y=mean_WBGTf)) +
+  geom_point(size=1) +
+  geom_smooth() +
+  theme_bw() +
+  scale_x_continuous(breaks=seq(0, 365, 30), limits=c(0, 365)) +
+  scale_y_continuous(limits=c(0, 80)) +
+  labs(x="Day", y="Mean Wet Bulb Globe Temperature (f)")
+
+  
+# suppressWarnings(print(wbgtf))
+
+ggplotly(wbgtf)
+```
+
+
+```{r boxplots of each station}
+summer <- c(05, 06, 07, 08, 09)
+# weather |>
+#   filter(month(MeasurementTimestamp) %in% summer) |>
+#   ggplot(aes(x=as.factor(StationName), 
+#              y=AirTemperature, 
+#              fill=StationName)) + 
+#   geom_boxplot(alpha=.9) +
+#   scale_fill_brewer(palette="Accent") +
+#   theme_bw() +
+#   labs(fill="Station", 
+#        y="Air Temperature", 
+#        title="Air Temperature by Station in the Summer") +
+#   theme(axis.title.x = element_blank())
+
+
+# bad idea
+# weather |>
+#   filter(month(MeasurementTimestamp) %in% summer) |>
+#   ggplot(aes(x=AirTemperature, fill=StationName))+
+#   geom_histogram(color="Black",
+#                  alpha=.95, 
+#                  position="identity", 
+#                  binwidth = 1) +
+#   theme_bw() +
+#   scale_fill_brewer(palette="Accent")
+
+weather |>
+  filter(month(MeasurementTimestamp) %in% summer) |>
+  ggplot(aes(x=as.factor(StationName), 
+             y=WBGTf, 
+             fill=StationName)) + 
+  geom_boxplot(alpha=.9) +
+  scale_fill_brewer(palette="Accent") +
+  theme_bw() +
+  labs(fill="Station", 
+       y="Wet Bulb Globe Temperature (f)", 
+       title="Wet Bulb Globe Temperature by Station in the Summer") +
+  theme(axis.title.x = element_blank())
+
+weather |>
+  mutate(month=month(MeasurementTimestamp)) |>
+  filter(between(month, 5, 9), !is.na(WBGTf)) |>
+  select(StationName, WBGTf) |>
+  group_by(StationName) |>
+  summarize(n=n(),
+            mean_wbgtf = mean(WBGTf))
+```
+
+```{r understanding breakdown of WBGTf by month}
+weather |>
+  mutate(month = month(MeasurementTimestamp)) |>
+  filter(between(month, 5, 9)) |>
+  group_by(month) |>
+  ggplot(aes(factor(month), WBGTf, fill=factor(month))) +
+  geom_boxplot() +
+  theme_bw() +
+  scale_fill_brewer(palette="Accent") +
+  labs(x="Month",
+       title="Spread of WBGTf over May-Aug",
+       y="Wet Bulb Globe Temperature (f)") +
+  theme(legend.position = "none") +
+  scale_x_discrete(labels=c("May", "June", "July", "August", "September"))
+
+
+weather |>
+  mutate(month=month(MeasurementTimestamp)) |>
+  filter(between(month, 5, 9)) |>
+  group_by(month) |>
+  summarize(n=n(),
+            mean_wbgtf = mean(WBGTf, na.rm=TRUE)) 
+
+
+# weather |>
+#   mutate(month = month(MeasurementTimestamp)) |>
+#   filter(month %in% c(5,6,7,8) ) |>
+#   group_by(StationName) |>
+#   ggplot(aes(factor(StationName), WBGTf)) +
+#   geom_jitter()
+# 
+# weather |>
+#   filter(StationName=="Foster Weather Station") |>
+#   select(MeasurementTimestamp, AirTemperature, WetBulbTemperature, 
+#          Humidity, SolarRadiation, WBGTf)
+
+# weather |>
+#   mutate(month = month(MeasurementTimestamp)) |>
+#   filter(between(month, 5, 9)) |>
+#   group_by(StationName) |>
+#   ggplot(aes(factor(StationName), WBGTf, color=StationName)) +
+#   geom_jitter() +
+#   labs(x="Month", 
+#        color="Station",
+#        title="WBGTf by Station over the Summer months",
+#        subtitle="Foster Weather Station does not collect wet bulb temperature",
+#        caption="Data Source: City of Chicago") +
+#   scale_color_brewer(palette = "Dark2") +
+#   theme(axis.text.x=element_blank(), axis.ticks.x = element_blank()) +
+#   facet_grid(~ month, switch="x") 
+```
+
+```{r ANOVA}
+# by station
+
+
+# by month
+
+```
+
+
+
+```{r attempting line graph on one graph}
+p1 <- weather[str_detect(weather$StationName, "Oak"),] |>
+  filter(between(MeasurementTimestamp,as.Date("2016-01-01"),as.Date("2016-06-01"))) |>
+  ggplot(aes(x=MeasurementTimestamp, y=AirTemperature)) +
+  geom_line(color="Grey20") +
+  ggtitle("Oak Street") +
+  theme_bw()
+
+p2 <- weather[str_detect(weather$StationName, "63rd"),] |>
+  filter(between(MeasurementTimestamp,as.Date("2016-01-01"),as.Date("2016-06-01"))) |>
+  ggplot(aes(x=MeasurementTimestamp, y=AirTemperature)) +
+  geom_line(color="Red2") +
+  ggtitle("63rd Street") +
+  theme_bw()
+
+p3 <- weather[str_detect(weather$StationName, "Foster"),] |>
+  filter(between(MeasurementTimestamp,as.Date("2016-01-01"),as.Date("2016-06-01"))) |>
+  ggplot(aes(x=MeasurementTimestamp, y=AirTemperature))+
+  geom_line(color="GoldenRod3") +
+  ggtitle("Foster") +
+  theme_bw()
+
+p1 + p2 + p3
+```
+
+```{r attempting to line graph on one graph}
+ggplot(weather, aes(x=MeasurementTimestamp)) +
+  geom_line(aes(y=AirTemperature))
+
+p1 <- weather[str_detect(weather$StationName, "Oak"),] |>
+  ggplot(aes(x=MeasurementTimestamp, y=AirTemperature)) +
+  geom_line(color="black") +
+  ggtitle("Temperature from Oak Street") +
+  theme_bw()
+
+p2 <- weather[str_detect(weather$StationName, "63rd"),] |>
+  ggplot(aes(x=MeasurementTimestamp, y=AirTemperature)) +
+  geom_line(color="LightPink") +
+  ggtitle("Temperature from 63rd Street") +
+  theme_bw()
+
+p3 <- weather[str_detect(weather$StationName, "Foster"),] |>
+  ggplot(aes(x=MeasurementTimestamp, y=AirTemperature))+
+  geom_line(color="Yellow") +
+  ggtitle("Temperature from Foster") +
+  theme_bw()
+
+# p1 + p2 + p3
+```
+

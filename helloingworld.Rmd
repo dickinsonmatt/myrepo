@@ -1,6 +1,7 @@
 ---
-output: 
-  html_document: 
+output:
+  pdf_document: default
+  html_document:
     fig_caption: yes
 ---
 

@@ -1,0 +1,6 @@
+## Exploring Branching
+```{r}
+ints <- sample(1:100, 3, replace=T)
+ints
+```
+

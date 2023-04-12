@@ -20,5 +20,7 @@ class1 <- data.frame(
   student=c("Matthew", "Karianne", "Khalil", "Lauren", "Bill"),
   grade=c("A", "A+", "A-", "B", "C-"),
   teacher=c("Ned", "Ned", "Reed", "Milly", "Reed"))
+
+class1
 ```
 

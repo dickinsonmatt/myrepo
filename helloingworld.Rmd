@@ -13,4 +13,12 @@ df <- data.frame(
 
 df
 ```
+# Mock Class
+```{r, eval=TRUE}
+class1 <- data.frame(
+  id=c(sample(100:110, 5, replace=FALSE)),
+  student=c("Matthew", "Karianne", "Khalil", "Lauren", "Bill"),
+  grade=c("A", "A+", "A-", "B", "C-"),
+  teacher=c("Ned", "Ned", "Reed", "Milly", "Reed"))
+```
 
